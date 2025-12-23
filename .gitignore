@@ -1,0 +1,7 @@
+mlruns/
+*.pkl
+data/*.csv
+__pycache__/
+.venv/
+venv/
+data/
