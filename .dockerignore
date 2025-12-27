@@ -1,0 +1,10 @@
+mlruns
+dvc_storage
+data
+__pycache__
+*.pyc
+.git
+.venv
+venv
+.env
+.idea

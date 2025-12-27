@@ -1,14 +1,20 @@
+import os
 import streamlit as st
 import joblib
 import numpy as np
 import pandas as pd
 
 # -----------------------------
-# Load models
+# Load models (paths configurable via MODEL_BASE env var)
 # -----------------------------
-lr_model = joblib.load("D:\\MLops_EL\\mlruns\\1\\models\\m-9fa1d1bfe5d943a792a7bce554db1be0\\artifacts\\model.pkl")
-rf_model = joblib.load("D:\\MLops_EL\\mlruns\\1\\models\\m-f76ae34aee404a7b8e52db8c062df03f\\artifacts\\model.pkl")
-xg_model = joblib.load("D:\\MLops_EL\\mlruns\\1\\models\\m-f803976efe4442018fdc1605dd9a26be\\artifacts\\model.pkl")
+model_base = os.environ.get("MODEL_BASE", "mlruns")
+try:
+    lr_model = joblib.load(os.path.join(model_base, "1", "models", "m-9fa1d1bfe5d943a792a7bce554db1be0", "artifacts", "model.pkl"))
+    rf_model = joblib.load(os.path.join(model_base, "1", "models", "m-f76ae34aee404a7b8e52db8c062df03f", "artifacts", "model.pkl"))
+    xg_model = joblib.load(os.path.join(model_base, "1", "models", "m-f803976efe4442018fdc1605dd9a26be", "artifacts", "model.pkl"))
+except Exception as e:
+    st.error(f"Failed to load models from '{model_base}': {e}")
+    st.stop()
 
 st.set_page_config(page_title="Smart Task Allocation", layout="centered")
 
@@ -64,6 +70,22 @@ if st.button("🚀 Predict Suitability"):
         "Random Forest": rf_model.predict(X)[0],
         "XGBoost": xg_model.predict(X)[0]
     }
+
+    # -----------------------------
+    # Model Accuracies (user-provided)
+    # -----------------------------
+    st.header("🔎 Model Accuracies")
+    lr_acc = st.number_input("Linear Regression Accuracy", min_value=0.0, max_value=1.0, value=0.85, step=0.01)
+    rf_acc = st.number_input("Random Forest Accuracy", min_value=0.0, max_value=1.0, value=0.88, step=0.01)
+    xg_acc = st.number_input("XGBoost Accuracy", min_value=0.0, max_value=1.0, value=0.90, step=0.01)
+
+    acc_df = pd.DataFrame({
+        "Model": ["Linear Regression", "Random Forest", "XGBoost"],
+        "Accuracy": [lr_acc, rf_acc, xg_acc]
+    }).set_index("Model")
+
+    st.line_chart(acc_df["Accuracy"])
+    # ...existing code...
 
     # -----------------------------
     # Display Results

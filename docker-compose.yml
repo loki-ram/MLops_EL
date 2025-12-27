@@ -1,0 +1,13 @@
+
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./mlruns:/app/mlruns:ro
+      - ./data:/app/data:ro
+    environment:
+      - MODEL_BASE=/app/mlruns
+    restart: unless-stopped
