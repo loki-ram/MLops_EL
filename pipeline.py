@@ -1,156 +1,211 @@
+# mlops_pipeline.py
 import os
+from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 import numpy as np
+import joblib
 
-# ----------------------------
-# ML Models
-# ----------------------------
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
-from sklearn.metrics import mean_absolute_error, r2_score
-
-# ----------------------------
-# MLflow
-# ----------------------------
-import mlflow
-import mlflow.sklearn
-
-# ----------------------------
-# Prefect
-# ----------------------------
 from prefect import flow, task
 
-# ----------------------------
-# Evidently (LATEST API)
-# ----------------------------
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+
 from evidently.report import Report
 from evidently.metric_preset import DataDriftPreset
 
-# ============================================================
-# Prefect Tasks
-# ============================================================
 
+# -------------------------
+# Utilities
+# -------------------------
+def ensure_parent_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def generate_synthetic_dataset(path: Path, n: int = 500, seed: int = 42) -> pd.DataFrame:
+    """Generate a small synthetic dataset and save it to path."""
+    np.random.seed(seed)
+    df = pd.DataFrame({
+        "skill_match_score": np.random.uniform(0, 1, size=n),
+        "complexity_level": np.random.randint(1, 6, size=n),  # 1..5
+        "availability": np.random.uniform(0, 1, size=n),
+        "past_performance": np.random.uniform(0, 1, size=n),
+    })
+    df["suitability_score"] = (
+        0.5 * df["skill_match_score"]
+        + 0.2 * (1.0 / df["complexity_level"])
+        + 0.2 * df["availability"]
+        + 0.1 * df["past_performance"]
+        + np.random.normal(0, 0.02, size=n)
+    )
+    ensure_parent_dir(path)
+    df.to_csv(path, index=False)
+    print(f"[INFO] Generated synthetic dataset at {path.resolve()}")
+    return df
+
+
+# -------------------------
+# 1️⃣ LOAD TRAINING DATA
+# -------------------------
 @task
-def load_data():
-    df = pd.read_csv("D:/MLops_EL/data/final.csv")
+def load_training_data(path: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load training (baseline) data.
+    Default path: data/final.csv
+    If file doesn't exist, a synthetic dataset is generated and saved to that path.
+    """
+    path_str = path or os.getenv("TRAINING_DATA_PATH", "data/final.csv")
+    p = Path(path_str)
+    print(f"[INFO] Loading training data from: {p}")
+
+    if not p.exists():
+        print(f"[WARN] Training data not found at {p}. Generating synthetic dataset for CI/tests.")
+        df = generate_synthetic_dataset(p)
+    else:
+        df = pd.read_csv(p)
+        print(f"[INFO] Loaded training data from {p} (rows={len(df)})")
 
     cols = [
         "skill_match_score",
         "complexity_level",
         "availability",
         "past_performance",
-        "suitability_score"
+        "suitability_score",
     ]
-
     df = df[cols].dropna().reset_index(drop=True)
     df["complexity_inv"] = 1.0 / df["complexity_level"]
-
     return df
 
 
+# -------------------------
+# 2️⃣ LOAD PRODUCTION DATA
+# -------------------------
 @task
-def split_data(df):
-    X = df[
-        ["skill_match_score", "availability", "past_performance", "complexity_inv"]
+def load_production_data(path: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load production (current) data.
+    Default path: data/production.csv
+    If file doesn't exist, try to copy training data if available, otherwise generate synthetic.
+    """
+    path_str = path or os.getenv("PRODUCTION_DATA_PATH", "data/production.csv")
+    p = Path(path_str)
+    print(f"[INFO] Loading production data from: {p}")
+
+    if not p.exists():
+        # If training file exists, copy it (simulate production); otherwise generate synthetic.
+        training_path = Path(os.getenv("TRAINING_DATA_PATH", "data/final.csv"))
+        if training_path.exists():
+            ensure_parent_dir(p)
+            df = pd.read_csv(training_path)
+            df.to_csv(p, index=False)
+            print(f"[INFO] Production data not found. Copied training data to {p}")
+        else:
+            print(f"[WARN] Production data and training data missing; generating synthetic production dataset.")
+            df = generate_synthetic_dataset(p)
+    else:
+        df = pd.read_csv(p)
+        print(f"[INFO] Loaded production data from {p} (rows={len(df)})")
+
+    cols = [
+        "skill_match_score",
+        "complexity_level",
+        "availability",
+        "past_performance",
+        "suitability_score",
     ]
-    y = df["suitability_score"] + np.random.normal(0, 0.015, size=len(df))
+    df = df[cols].dropna().reset_index(drop=True)
+    df["complexity_inv"] = 1.0 / df["complexity_level"]
+    return df
 
-    return train_test_split(X, y, test_size=0.2, random_state=42)
 
-
+# -------------------------
+# 3️⃣ TRAIN MODEL
+# -------------------------
 @task
-def run_evidently(reference_data, current_data):
-    os.makedirs("reports", exist_ok=True)
+def train_model(df: pd.DataFrame, artifacts_dir: str = "artifacts") -> str:
+    """
+    Train a LinearRegression model on df and save it to artifacts_dir/model.pkl.
+    Returns the model file path.
+    """
+    print("[INFO] Training model...")
+    X = df[["skill_match_score", "availability", "past_performance", "complexity_inv"]]
+    y = df["suitability_score"]
 
-    report = Report(
-        metrics=[
-            DataDriftPreset()
-        ]
-    )
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    report.run(
-        reference_data=reference_data,
-        current_data=current_data
-    )
+    model = LinearRegression()
+    model.fit(X_train, y_train)
 
-    report.save_html("reports/data_drift_report.html")
+    y_pred = model.predict(X_val)
+    mae = mean_absolute_error(y_val, y_pred)
+    r2 = r2_score(y_val, y_pred)
+
+    print(f"[INFO] Validation MAE: {mae:.4f}")
+    print(f"[INFO] Validation R²: {r2:.4f}")
+
+    artifacts_path = Path(artifacts_dir)
+    artifacts_path.mkdir(parents=True, exist_ok=True)
+    model_path = artifacts_path / "model.pkl"
+    joblib.dump(model, model_path)
+    print(f"[INFO] Saved model to {model_path.resolve()}")
+
+    return str(model_path.resolve())
 
 
+# -------------------------
+# 4️⃣ DATA DRIFT DETECTION
+# -------------------------
 @task
-def train_and_log(model, run_name, X_train, X_test, y_train, y_test):
+def run_drift_detection(reference_data: pd.DataFrame, current_data: pd.DataFrame, reports_dir: str = "reports") -> str:
+    """
+    Run Evidently data drift detection and save an HTML report.
+    Returns the path to the saved report.
+    """
+    print("[INFO] Running data drift detection...")
+    report = Report(metrics=[DataDriftPreset()])
 
-    with mlflow.start_run(run_name=run_name):
+    report.run(reference_data=reference_data, current_data=current_data)
 
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
+    reports_path = Path(reports_dir)
+    reports_path.mkdir(parents=True, exist_ok=True)
+    report_path = reports_path / "data_drift_report.html"
+    report.save_html(str(report_path))
+    print(f"[INFO] Drift report saved to {report_path.resolve()}")
 
-        mlflow.log_param("model_name", run_name)
-        mlflow.log_metric("MAE", mean_absolute_error(y_test, preds))
-        mlflow.log_metric("R2", r2_score(y_test, preds))
-
-        mlflow.sklearn.log_model(model, artifact_path="model")
-
-
-# ============================================================
-# Prefect Flow
-# ============================================================
-
-@flow(name="Smart-Task-Allocation-MLOps-Pipeline")
-def training_pipeline():
-
-    mlflow.set_experiment("MLOps_EL_Final")
-
-    # 1️⃣ Load Data
-    df = load_data()
-
-    # 2️⃣ Create Reference & Current Data (for drift)
-    reference_data = df.sample(frac=0.7, random_state=42)
-    current_data = df.sample(frac=0.3, random_state=99)
-
-    # 3️⃣ Run Evidently AI
-    run_evidently(reference_data, current_data)
-
-    # 4️⃣ Train/Test Split
-    X_train, X_test, y_train, y_test = split_data(df)
-
-    # 5️⃣ Train & Log Models
-    train_and_log(
-        LinearRegression(),
-        "LinearRegression",
-        X_train, X_test, y_train, y_test
-    )
-
-    train_and_log(
-        XGBRegressor(
-            n_estimators=200,
-            learning_rate=0.1,
-            max_depth=4,
-            objective="reg:squarederror",
-            random_state=42
-        ),
-        "XGBoost",
-        X_train, X_test, y_train, y_test
-    )
-
-    train_and_log(
-        RandomForestRegressor(
-            n_estimators=200,
-            max_depth=8,
-            min_samples_split=10,
-            min_samples_leaf=4,
-            max_features="sqrt",
-            random_state=42
-        ),
-        "RandomForest",
-        X_train, X_test, y_train, y_test
-    )
+    return str(report_path.resolve())
 
 
-# ============================================================
-# Run Pipeline
-# ============================================================
+# -------------------------
+# 5️⃣ PREFECT FLOW
+# -------------------------
+@flow(name="Cloud MLOps Observability Pipeline")
+def mlops_observability_pipeline(training_path: Optional[str] = None, production_path: Optional[str] = None):
+    """
+    Orchestrates loading data, training model, and running drift detection.
+    Paths can be passed in or supplied via environment variables:
+      TRAINING_DATA_PATH, PRODUCTION_DATA_PATH
+    """
+    training_path = training_path or os.getenv("TRAINING_DATA_PATH", "data/final.csv")
+    production_path = production_path or os.getenv("PRODUCTION_DATA_PATH", "data/production.csv")
 
+    train_df = load_training_data.submit(training_path).result()
+    model_path = train_model.submit(train_df).result()
+
+    # For drift detection we want baseline vs current
+    prod_df = load_production_data.submit(production_path).result()
+
+    report_path = run_drift_detection.submit(reference_data=train_df, current_data=prod_df).result()
+
+    print(f"[DONE] Model saved at: {model_path}")
+    print(f"[DONE] Drift report saved at: {report_path}")
+
+
+# -------------------------
+# 6️⃣ ENTRY POINT
+# -------------------------
 if __name__ == "__main__":
-    training_pipeline()
+    # Running with optional environment variables:
+    # TRAINING_DATA_PATH and PRODUCTION_DATA_PATH
+    mlops_observability_pipeline()
