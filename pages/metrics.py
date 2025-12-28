@@ -1,6 +1,7 @@
 import streamlit as st
 import mlflow
 from mlflow.tracking import MlflowClient
+import streamlit.components.v1 as components
 import pandas as pd
 import os
 
@@ -40,20 +41,18 @@ if experiment:
 else:
     st.warning("No MLflow experiment found")
 
-# ============================================================
-# 2️⃣ Evidently AI Section
-# ============================================================
-st.header("🔹 Evidently AI – Data Drift Report")
 
-report_path = "D:\\MLops_EL\\reports\\data_drift_report.html"
-
+# -----------------------------
+# Evidently HTML report (embedded)
+# -----------------------------
+st.header("📝 Evidently Data Drift Report")
+report_path = os.environ.get("EVIDENTLY_REPORT", os.path.join("reports", "data_drift_report.html"))
 if os.path.exists(report_path):
     with open(report_path, "r", encoding="utf-8") as f:
-        html_content = f.read()
-
-    st.components.v1.html(html_content, height=600, scrolling=True)
+        html = f.read()
+    components.html(html, height=800, scrolling=True)
 else:
-    st.warning("Evidently report not found")
+    st.warning(f"Evidently report not found at: {report_path}")
 
 # ============================================================
 # 3️⃣ Prefect Section
