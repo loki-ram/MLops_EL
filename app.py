@@ -18,7 +18,7 @@ except Exception as e:
 
 st.set_page_config(page_title="Smart Task Allocation", layout="centered")
 
-st.title("🧠 Smart Task Allocation System")
+st.title("🧠 Intelligent Workforce Allocation System")
 st.write("Compare predictions from multiple ML models")
 
 # -----------------------------
@@ -71,21 +71,6 @@ if st.button("🚀 Predict Suitability"):
         "XGBoost": xg_model.predict(X)[0]
     }
 
-    # -----------------------------
-    # Model Accuracies (user-provided)
-    # -----------------------------
-    st.header("🔎 Model Accuracies")
-    lr_acc = st.number_input("Linear Regression Accuracy", min_value=0.0, max_value=1.0, value=0.85, step=0.01)
-    rf_acc = st.number_input("Random Forest Accuracy", min_value=0.0, max_value=1.0, value=0.88, step=0.01)
-    xg_acc = st.number_input("XGBoost Accuracy", min_value=0.0, max_value=1.0, value=0.90, step=0.01)
-
-    acc_df = pd.DataFrame({
-        "Model": ["Linear Regression", "Random Forest", "XGBoost"],
-        "Accuracy": [lr_acc, rf_acc, xg_acc]
-    }).set_index("Model")
-
-    st.line_chart(acc_df["Accuracy"])
-    # ...existing code...
 
     # -----------------------------
     # Display Results

@@ -16,7 +16,7 @@ st.header("🔹 MLflow Model Metrics")
 
 client = MlflowClient()
 
-experiment = client.get_experiment_by_name("MLOps_EL_final")
+experiment = client.get_experiment_by_name("MLOps_EL_final_final")
 
 if experiment:
     runs = client.search_runs(
@@ -31,7 +31,8 @@ if experiment:
             "Run Name": run.data.tags.get("mlflow.runName", "N/A"),
             "MAE": run.data.metrics.get("MAE"),
             "R2": run.data.metrics.get("R2"),
-            "MSE": run.data.metrics.get("MSE")
+            "MSE": run.data.metrics.get("MSE"),
+            "MAPE": run.data.metrics.get("MAPE")
         })
 
     df_metrics = pd.DataFrame(metrics_data)
@@ -53,6 +54,27 @@ if os.path.exists(report_path):
     components.html(html, height=800, scrolling=True)
 else:
     st.warning(f"Evidently report not found at: {report_path}")
+
+# ============================================================
+# 🚨 Drift Alert Section
+# ============================================================
+st.header("🚨 Drift Alert Status")
+
+alert_file = os.path.join("reports", "drift_status.txt")
+
+if os.path.exists(alert_file):
+    with open(alert_file, "r") as f:
+        status = f.read().strip()
+
+    if status == "DRIFT_DETECTED":
+        st.error("🚨 Data Drift Detected! Immediate attention required.")
+    elif status == "NO_DRIFT":
+        st.success("✅ No Data Drift Detected. System is stable.")
+    else:
+        st.warning("⚠️ Unknown drift status.")
+else:
+    st.info("ℹ️ Drift status not available. Run the Prefect pipeline first.")
+
 
 # ============================================================
 # 3️⃣ Prefect Section

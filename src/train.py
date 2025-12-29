@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import joblib
 
 from sklearn.linear_model import LinearRegression
@@ -8,8 +7,12 @@ from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import (
+    mean_absolute_error,
+    r2_score,
+    mean_squared_error,
+    mean_absolute_percentage_error
+)
 
 import mlflow
 import mlflow.sklearn
@@ -17,7 +20,7 @@ import mlflow.sklearn
 # ============================================================
 # 1️⃣ Load & Prepare Data
 # ============================================================
-df = pd.read_csv("final.csv")
+df = pd.read_csv(r"data\final.csv")
 
 cols = [
     'skill_match_score',
@@ -37,11 +40,10 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-model_dir="D:\\MLops_EL\\models"
 # ============================================================
 # 2️⃣ MLflow Experiment
 # ============================================================
-mlflow.set_experiment("MLOps_EL_final")
+mlflow.set_experiment("MLOps_EL_final_final")
 
 # ============================================================
 # 3️⃣ LINEAR REGRESSION
@@ -50,15 +52,16 @@ with mlflow.start_run(run_name="Linear_Regression"):
 
     model = LinearRegression()
     model.fit(X_train, y_train)
-
     preds = model.predict(X_test)
 
     mlflow.log_param("model_type", "LinearRegression")
+
     mlflow.log_metric("MAE", mean_absolute_error(y_test, preds))
+    mlflow.log_metric("MSE", mean_squared_error(y_test, preds))
+    mlflow.log_metric("MAPE", mean_absolute_percentage_error(y_test, preds))
     mlflow.log_metric("R2", r2_score(y_test, preds))
 
     mlflow.sklearn.log_model(model, "lr_model")
-
 
 # ============================================================
 # 4️⃣ XGBOOST REGRESSOR
@@ -81,6 +84,8 @@ with mlflow.start_run(run_name="XGBoost_Regressor"):
     mlflow.log_param("max_depth", 4)
 
     mlflow.log_metric("MAE", mean_absolute_error(y_test, preds))
+    mlflow.log_metric("MSE", mean_squared_error(y_test, preds))
+    mlflow.log_metric("MAPE", mean_absolute_percentage_error(y_test, preds))
     mlflow.log_metric("R2", r2_score(y_test, preds))
 
     mlflow.sklearn.log_model(model, "xg_model")
@@ -107,9 +112,10 @@ with mlflow.start_run(run_name="Random_Forest"):
     mlflow.log_param("max_depth", 8)
 
     mlflow.log_metric("MAE", mean_absolute_error(y_test, preds))
-    mlflow.log_metric("R2", r2_score(y_test, preds))
     mlflow.log_metric("MSE", mean_squared_error(y_test, preds))
+    mlflow.log_metric("MAPE", mean_absolute_percentage_error(y_test, preds))
+    mlflow.log_metric("R2", r2_score(y_test, preds))
 
     mlflow.sklearn.log_model(model, "rf_model")
 
-print("\n✅ All 3 models logged successfully to MLflow!")
+print("\n✅ MAE, MSE, MAPE, and R2 logged for all 3 models successfully!")
