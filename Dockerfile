@@ -17,8 +17,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy project
 COPY . .
 
-# Pull data from DVC
-RUN dvc pull
+
 
 EXPOSE 8501
 
