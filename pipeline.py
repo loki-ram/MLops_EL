@@ -101,7 +101,7 @@ def train_model(df: pd.DataFrame) -> str:
     # -----------------------------
     # MLflow setup
     # -----------------------------
-    mlflow.set_experiment("smart_task_allocation_rf")
+    mlflow.set_experiment("MLOps_EL_final_final")
 
     with mlflow.start_run():
 
