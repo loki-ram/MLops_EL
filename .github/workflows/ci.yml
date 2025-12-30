@@ -41,10 +41,6 @@ jobs:
           fi
           pip install dvc
 
-      # 5️⃣ Pull data using DVC (CRITICAL)
-      - name: Pull data with DVC
-        run: |
-          dvc pull
 
       # 6️⃣ Lint (optional)
       - name: Lint (optional failure)
