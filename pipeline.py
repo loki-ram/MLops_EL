@@ -8,10 +8,14 @@ import numpy as np
 import joblib
 
 from prefect import flow, task
+import mlflow
+import mlflow.sklearn
+
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error,mean_absolute_error,mean_absolute_percentage_error,r2_score
+
 
 from evidently.report import Report
 from evidently.metric_preset import DataDriftPreset
@@ -29,7 +33,7 @@ def ensure_parent_dir(path: Path) -> None:
 # -------------------------
 @task
 def load_training_data(path: Optional[str] = None) -> pd.DataFrame:
-    path_str = path or "data/final.csv"
+    path_str = path or os.getenv("TRAINING_DATA_PATH", "data/final.csv")
     p = Path(path_str)
 
     if not p.exists():
@@ -55,7 +59,7 @@ def load_training_data(path: Optional[str] = None) -> pd.DataFrame:
 # -------------------------
 @task
 def load_production_data(path: Optional[str] = None) -> pd.DataFrame:
-    path_str = path or "data/production_new.csv"
+    path_str = path or os.getenv("PRODUCTION_DATA_PATH", "data/production_new.csv")
     p = Path(path_str)
 
     if not p.exists():
@@ -75,12 +79,16 @@ def load_production_data(path: Optional[str] = None) -> pd.DataFrame:
     df["complexity_inv"] = 1.0 / df["complexity_level"]
     return df
 
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
 
-# -------------------------
-# 3️⃣ TRAIN MODEL
-# -------------------------
+
 @task
 def train_model(df: pd.DataFrame) -> str:
+    # -----------------------------
+    # Feature selection
+    # -----------------------------
     X = df[
         ["skill_match_score", "availability", "past_performance", "complexity_inv"]
     ]
@@ -90,19 +98,73 @@ def train_model(df: pd.DataFrame) -> str:
         X, y, test_size=0.2, random_state=42
     )
 
-    model = LinearRegression()
-    model.fit(X_train, y_train)
+    # -----------------------------
+    # MLflow setup
+    # -----------------------------
+    mlflow.set_experiment("smart_task_allocation_rf")
 
-    preds = model.predict(X_val)
-    print(f"[INFO] MAE: {mean_absolute_error(y_val, preds):.4f}")
-    print(f"[INFO] R2 : {r2_score(y_val, preds):.4f}")
+    with mlflow.start_run():
 
-    Path("artifacts").mkdir(exist_ok=True)
-    model_path = "artifacts/model.pkl"
-    joblib.dump(model, model_path)
+        # -----------------------------
+        # Model parameters
+        # -----------------------------
+        params = {
+            "n_estimators": 200,
+            "max_depth": 8,
+            "min_samples_split": 10,
+            "min_samples_leaf": 4,
+            "random_state": 42
+        }
+
+        mlflow.log_params(params)
+
+        # -----------------------------
+        # Train model
+        # -----------------------------
+        model = RandomForestRegressor(**params)
+        model.fit(X_train, y_train)
+
+        # -----------------------------
+        # Validation
+        # -----------------------------
+        preds = model.predict(X_val)
+
+        mse=mean_squared_error(y_val,preds)
+        mape=mean_absolute_percentage_error(y_val,preds)
+        mae = mean_absolute_error(y_val, preds)
+        r2 = r2_score(y_val, preds)
+
+        print(f"Random Forest Metrics:")
+        print(f"MSE:  {mse:.4f}")
+        print(f"MAE:  {mae:.4f}")
+        print(f"MAPE: {mape:.4f}")
+        print(f"R²:   {r2:.4f}")
+
+
+        # -----------------------------
+        # Log metrics
+        # -----------------------------
+        mlflow.log_metric("mse", mse)
+        mlflow.log_metric("mae", mae)
+        mlflow.log_metric("mape", mape)
+        mlflow.log_metric("r2", r2)
+
+        # -----------------------------
+        # Save model artifact
+        # -----------------------------
+        Path("artifacts").mkdir(exist_ok=True)
+        model_path = "artifacts/model.pkl"
+        joblib.dump(model, model_path)
+
+        # -----------------------------
+        # Log model to MLflow
+        # -----------------------------
+        mlflow.sklearn.log_model(
+            sk_model=model,
+            artifact_path="random_forest_model"
+        )
 
     return model_path
-
 
 # -------------------------
 # 4️⃣ DATA DRIFT DETECTION
