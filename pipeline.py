@@ -26,7 +26,7 @@ from evidently.metric_preset import DataDriftPreset
 # -------------------------
 def ensure_parent_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-
+mlflow.set_tracking_uri("file:./mlruns")
 
 # -------------------------
 # 1️⃣ LOAD TRAINING DATA
